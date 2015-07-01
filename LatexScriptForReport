@@ -1,0 +1,471 @@
+\documentclass[10pt]{article}
+\usepackage[hmargin=1in,vmargin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{array}
+\usepackage{moreverb}
+\usepackage{graphicx}
+\usepackage{placeins}
+\usepackage{fixltx2e}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{pgfplots}
+\usepackage{pgfopts}
+\usepackage[T1]{fontenc}
+\usepackage[utf8x]{inputenc}
+\usepackage[french]{babel}
+\usepackage{fullpage}
+\usepackage{tikz-uml}
+\usetikzlibrary{arrows, positioning}
+\renewcommand{\thefootnote}{$\dagger$}
+\begin{document}
+\def\bs{\textbackslash}
+\setlength\parindent{0pt}
+\def\reals{\hbox{\rm I\kern-.18em R}}
+\def\complexes{\hbox{\rm C\kern-.43em
+\vrule depth 0ex height 1.4ex width .05em\kern.41em}}
+\def\field{\hbox{\rm I\kern-.18em F}} %symbol for field
+\title{Homework Template}
+\setcounter{page}{1}
+\begin{center}
+\textbf{Pranay Yadav}\\
+\textit{pranay.yadav@ge.com}\\
+EID Intern, GE Intelligent Platforms\\
+\end{center}
+\vspace{1ex}
+\begin{center}
+\textbf{Object Oriented Design implementing File I/O using Byte Range Locking}
+\end{center}
+\vspace{2ex}
+This document contains the Object Oriented Design and Implementation for File I/O using Byte Range locking rather than File-level locking. Following are the details of the experimentation: \\\\
+\textbf{Sample Input File: }\texttt{Proficy-Perf\_Data.txt}\\
+\textbf{Sample Input File Size: }\texttt{70.7 MB}\\
+\textbf{Maximum \# of Threads used: }\texttt{256}\\
+\vspace{5ex}
+\begin{itemize}
+\item {\bf UML Class Diagram for the Object Oriented Design}\\
+\vspace{6ex}
+\begin{center}
+\begin{tikzpicture} 
+\umlclass{IOManager}{ 
+  -\texttt{ availableHandle : vector<int> } \\ 
+  -\texttt{ fileHandles : HANDLE* }\\
+  -\texttt{ rangeLockMap\footnotemark : map}\\
+  }{
+  +\texttt{ IOManager() }\\
+  +\texttt{ AcquireRangeLock (...) : bool }\\
+  +\texttt{ ReleaseRangeLock (...) : bool }\\
+  +\texttt{ FileRead (...) : bool }\\
+  +\texttt{ FileWrite (...) : bool }\\
+  +\texttt{ requestHandle (...) : pair }\\
+  +\texttt{ closeHandle (...) : bool }\\
+  +\texttt{ requestIO (...) : void }\\
+}
+\umlclass[x=9]{IOThread}{
+-\texttt{ io : int} \\
+-\texttt{ ThreadID : int} 
+}{
++\texttt{ IOThread(...) }\\
++\texttt{ getIO() : int}\\
++\texttt{ getThreadID() : int}\\
+}
+\umluniassoc[geometry=-|,mult1=1,pos1=0.06,mult2=*,pos2=0.6]{IOManager}{IOThread}
+\end{tikzpicture}
+\end{center}
+\vspace{5ex}
+\begin{itemize}
+\item Singleton object of class \texttt{IOManager} manages requests from multiple instances of class \texttt{IOThread} for database file I/O.
+\vspace{3ex}
+\item Specialised methods are implemented to access different stages in which I/O shall be completed, and the latter is shown diagrammatically on the next page.
+\vspace{3ex}
+\item \texttt{AcquireRangeLock()} \& \texttt{ReleaseRangeLock()} methods deal with byte range locking rather than file-level locking as present in existing \texttt{BasicFile.cpp}
+\end{itemize}
+\vspace{15ex}
+\footnotetext{Not yet implemented. Handles the case for avoiding starvation of Writers.}
+\pagebreak
+\item {\bf State Transition Diagram}
+\begin{center}
+\begin{tikzpicture}[->,>=stealth',shorten >=3pt,auto,node distance=4.5cm,
+                   main node/.style={rectangle,draw,font=\sffamily\large\tt},
+                   success node/.style={circle,draw=blue!75,font=\sffamily\large\tt, fill=blue!20},
+                   failure node/.style={circle,draw=red!75,font=\sffamily\large\tt,fill=red!20}]
+  \node[main node] (1) {Seek File Handle};
+	\node[success node] (0) [right of=1] {Start};
+	\node[main node] (2) [below left of=1] {Seek byte-range Lock};
+  \node[main node] (3) [below of=2] {Perform I/O};
+  \node[main node] (4) [right of=3] {Release lock};
+  \node[failure node] (7) [right of=2] {Failure};
+  \node[main node] (5) [right of=7] {Close File Handle};
+  \node[success node] (6) [right of=4] {Success};
+
+\path[every node/.style={font=\sffamily\small}]
+	(0) edge node[blue, pos=0.5] {1} (1)
+    (1) edge [min distance=10mm, in=120, out=60, loop] node [red, pos=0.5] {0} (1)
+        edge node[blue, pos=0.5] {1} (2)
+    (2) edge node[blue, pos=0.5] {1} (3)
+        edge [min distance=10mm, in=120, out=60, loop] node[red, pos=0.5] {0} (2)
+    (3) edge node[blue, pos=0.5] {1} (4)
+        edge node[red,pos=0.5] {0} (7)
+    (4) edge node[blue, pos=0.5] {1} (5)
+        edge node[red, pos=0.5] {0} (7)
+    (5) edge node[blue, pos=0.5] {1} (6)
+        edge node[red, pos=0.5] {0} (7);
+\end{tikzpicture}
+\end{center}
+\vspace{5ex}
+\begin{itemize}
+\item \texttt{[Start]} ---> \texttt{[Seek File Handle]}:\\ 
+		\texttt{IOThread} instance, say \textit{T\textsubscript{1}} requests singleton instance of class \texttt{IOManager}, say \textit{iomanager} for one of the 256 available File Handles with the \textit{iomanager}.
+\item \texttt{[Seek File Handle]} ---> \texttt{[Seek byte-range Lock]}:\\ 
+		When successfully given a valid file handle, \textit{T\textsubscript{1}} requests for either Shared lock (when Reader thread) or Exclusive lock (when Writer thread) on the byte range which it wants to access for I/O.
+\item \texttt{[Seek byte-range Lock]} ---> \texttt{[Perform I/O]}:\\ 
+		When successfully obtained the lock on the given byte range, \textit{T\textsubscript{1}} now proceeds with \textbf{synchronous I/O} on the file.
+\item \texttt{[Perform I/O]} ---> \texttt{[Release lock]}:\\ 
+		When successfully completed I/O, \textit{T\textsubscript{1}} now proceeds with unlocking the byte range locked by itself, so as to allow the waiting threads to acquire lock on the intersecting byte-ranges.
+\item \texttt{[Release lock]} ---> \texttt{[Close File Handle}:\\ 
+		When successfully unlocked the byte range, \textit{T\textsubscript{1}} now proceeds with closing the file handle allotted to itself by the \textit{iomanager}.
+\item \texttt{[Close File Handle]} ---> \texttt{[Success]}:\\ 
+		When successfully closed the file handle, \textit{T\textsubscript{1}} now reaches the accept state, and its I/O request is complete. The thread is hereby terminated with Success flag.
+\item \texttt{Transitions with red edge labels (marked by 0 meaning Failure)}:\\
+		When unsuccessful to take the transitions with blue edge labels (marked by 1 meaning \texttt{Success}), the thread either is either blocked until the process is successful (synchronous as in the case for seeking file handle \& byte-range lock) or enters a trapped state (marked as \texttt{[Failure]}), where in the thread is terminated with Failure flag.
+\end{itemize}
+\pagebreak
+\item {\bf Experimental Results \& Statistics}\\
+\vspace{3ex}
+\begin{itemize}
+\item Increasing the \# of Reader threads (no Writer threads) exponentially
+\vspace{10ex}
+\begin{table}[h]
+\centering
+\caption{\texttt{Obtained running times for various \# of Reader threads}}
+\vspace{5ex}
+\begin{tabular}{|>{\centering\arraybackslash}m{1in}|>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}|}
+\hline
+\# of Threads (R only)    & 1      & 2      & 4      & 8      & 16     & 32     & 64     & 128    & 256    \parbox{0pt}{\rule{0pt}{5ex+\baselineskip}} \\ \hline
+With byte range locking    & 0.0026 & 0.0051 & 0.0101 & 0.0188 & 0.0340 & 0.0659 & 0.0980 & 0.1653 & 0.3848 \parbox{0pt}{\rule{0pt}{5ex+\baselineskip}} \\ \hline
+Without byte range locking 
+&0.0026
+&0.0052
+&0.0104
+&0.0208
+&0.0416
+&0.0832
+&0.1664
+&0.3328
+&0.6656
+\parbox{0pt}{\rule{0pt}{5ex+\baselineskip}}   \\ \hline
+\end{tabular}
+\end{table}
+\vspace{10ex}
+\begin{center}
+\begin{tikzpicture}
+\begin{axis}[
+	title={\texttt{Obtained running times v/s \# of Reader threads (No Writers)}},
+    width= 0.9\textwidth,
+    height= 0.6\textwidth,
+    xlabel={\# of Readers},
+    ylabel={Running times (in secs)},
+    xmin=0, xmax=270,
+    ymin=0, ymax=1.5,
+    xtick={1,2,4,8,16,32,64,128,256},
+    ytick={0,0.25,0.50,0.75,1.00,1.25,1.5},
+]
+\addplot[
+    color=blue,
+    mark=square,
+    ]
+    coordinates {
+    (1,0.0026)
+    (2,0.0051)
+    (4,0.0101)
+    (8,0.0188)
+	(16,0.0340)
+	(32,0.0659)
+	(64,0.0980)
+	(128,0.1653)
+	(256,0.3848)
+    };
+\addplot[
+    color=red,
+    mark=square,
+    ]
+    coordinates {
+    (1,0.0026)
+    (2,0.0052)
+	(4,0.0104)
+(8,0.0208)
+(16,0.0416)
+(32,0.0832)
+(64,0.1664)
+(128,0.3328)
+(256,0.6656)
+    };
+ 
+\end{axis}
+\end{tikzpicture}
+\end{center}
+\pagebreak
+\item Increasing the \# of Writer threads (no Reader threads) exponentially
+\vspace{10ex}
+\begin{table}[h]
+\centering
+\caption{\texttt{Obtained running times for various \# of Writer threads}}
+\vspace{5ex}
+\begin{tabular}{|>{\centering\arraybackslash}m{1in}|>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}|}
+\hline
+\# of Threads (W only)    & 1      & 2      & 4      & 8      & 16     & 32     & 64     & 128    & 256    \parbox{0pt}{\rule{0pt}{5ex+\baselineskip}} \\ \hline
+With byte range locking    & 0.0045
+&0.0077
+&0.0176
+&0.0324
+&0.0489
+&0.0821
+&0.1629
+&0.3597
+&0.6686
+ \parbox{0pt}{\rule{0pt}{5ex+\baselineskip}} \\ \hline
+Without byte range locking & 
+0.0045 & 0.0090 & 0.0180 & 0.0360 & 0.0720 & 0.1440 & 0.2880 & 0.5760 & 1.152 
+\parbox{0pt}{\rule{0pt}{5ex+\baselineskip}}   \\ \hline
+\end{tabular}
+\end{table}
+\vspace{10ex}
+\begin{center}
+\begin{tikzpicture}
+\begin{axis}[
+	title={\texttt{Obtained running times v/s \# of Writer threads (No Readers)}},
+    width= 0.9\textwidth,
+    height= 0.6\textwidth,
+    xlabel={\# of Writers},
+    ylabel={Running times (in secs)},
+    xmin=0, xmax=270,
+    ymin=0, ymax=1.5,
+    xtick={1,2,4,8,16,32,64,128,256},
+    ytick={0,0.25,0.50,0.75,1.00,1.25,1.5},
+]
+\addplot[
+    color=blue,
+    mark=square,
+    ]
+    coordinates {
+    (1,0.0045)
+(2,0.0077)
+(4,0.0176)
+(8,0.0324)
+(16,0.0489)
+(32,0.0821)
+(64,0.1629)
+(128,0.3597)
+(256,0.6686)
+    };
+\addplot[
+    color=red,
+    mark=square,
+    ]
+    coordinates {
+(1,0.0045)
+(2,0.0090)
+(4,0.0180)
+(8,0.0360)
+(16,0.0720)
+(32,0.1440)
+(64,0.2880)
+(128,0.5760)
+(256,1.1520)
+    };
+ 
+\end{axis}
+\end{tikzpicture}
+\end{center}
+\pagebreak
+\item Increasing the \# of Reader threads (Total \# of Threads=256) exponentially
+\vspace{10ex}
+\begin{table}[h]
+\centering
+\caption{\texttt{Obtained running times for various \# of Reader threads (along with Writers)}}
+\vspace{5ex}
+\begin{tabular}{|>{\centering\arraybackslash}m{1in}|>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}|}
+\hline
+\# of Threads (W only)    & 1      & 2      & 4      & 8      & 16     & 32     & 64     & 128    & 256    \parbox{0pt}{\rule{0pt}{5ex+\baselineskip}} \\ \hline
+With byte range locking    
+&0.8773
+&0.7997
+&0.6376
+&0.4926
+&0.3839
+&0.2956
+&0.2384
+&0.2650
+&0.1294
+ \parbox{0pt}{\rule{0pt}{5ex+\baselineskip}} \\ \hline
+Without byte range locking 
+&1.1501
+&1.1482
+&1.1444
+&1.1368
+&1.1216
+&1.0912
+&1.0304
+&0.9088
+&0.6656
+\parbox{0pt}{\rule{0pt}{5ex+\baselineskip}}   \\ \hline
+\end{tabular}
+\end{table}
+\vspace{10ex}
+\begin{center}
+\begin{tikzpicture}
+\begin{axis}[
+	title={\texttt{Obtained running times v/s \# of Reader threads (with Writers)}},
+    width= 0.9\textwidth,
+    height= 0.6\textwidth,
+    xlabel={\# of Readers},
+    ylabel={Running times (in secs)},
+    xmin=0, xmax=270,
+    ymin=0, ymax=1.5,
+    xtick={1,2,4,8,16,32,64,128,256},
+    ytick={0,0.25,0.50,0.75,1.00,1.25,1.5},
+]
+\addplot[
+    color=blue,
+    mark=square,
+    ]
+    coordinates {
+(1,0.8773)
+(2,0.7997)
+(4,0.6376)
+(8,0.4926)
+(16,0.3839)
+(32,0.2956)
+(64,0.2384)
+(128,0.2650)
+(256,0.1294)
+    };
+\addplot[
+    color=red,
+    mark=square,
+    ]
+    coordinates {
+(1,1.1501)
+(2,1.1482)
+(4,1.1444)
+(8,1.1368)
+(16,1.1216)
+(32,1.0912)
+(64,1.0304)
+(128,0.9088)
+(256,0.6656)
+
+};
+\end{axis}
+\end{tikzpicture}
+\end{center}
+\pagebreak
+\item Increasing the \# of Writer threads (Total \# of Threads=256) exponentially
+\vspace{10ex}
+\begin{table}[h]
+\centering
+\caption{\texttt{Obtained running times for various \# of Writer threads (along with Readers)}}
+\vspace{5ex}
+\begin{tabular}{|>{\centering\arraybackslash}m{1in}|>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}>{\centering\arraybackslash}m{0.5in}|}
+\hline
+\# of Threads (W only)    & 1      & 2      & 4      & 8      & 16     & 32     & 64     & 128    & 256    \parbox{0pt}{\rule{0pt}{5ex+\baselineskip}} \\ \hline
+With byte range locking    
+&0.3681
+&0.3742
+&0.3720
+&0.4082
+&0.4323
+&0.4894
+&0.5946
+&0.6646
+&0.8251
+ \parbox{0pt}{\rule{0pt}{5ex+\baselineskip}} \\ \hline
+Without byte range locking 
+&0.6675
+&0.6694
+&0.6732
+&0.6808
+&0.6960
+&0.7264
+&0.7872
+&0.9088
+&1.1520
+\parbox{0pt}{\rule{0pt}{5ex+\baselineskip}}   \\ \hline
+\end{tabular}
+\end{table}
+\vspace{10ex}
+\begin{center}
+\begin{tikzpicture}
+\begin{axis}[
+	title={\texttt{Obtained running times v/s \# of Writer threads (with Readers)}},
+    width= 0.9\textwidth,
+    height= 0.6\textwidth,
+    xlabel={\# of Writers},
+    ylabel={Running times (in secs)},
+    xmin=0, xmax=270,
+    ymin=0, ymax=1.5,
+    xtick={1,2,4,8,16,32,64,128,256},
+    ytick={0,0.25,0.50,0.75,1.00,1.25,1.5},
+]
+\addplot[
+    color=blue,
+    mark=square,
+    ]
+    coordinates {
+(1,0.3681)
+(2,0.3742)
+(4,0.3720)
+(8,0.4082)
+(16,0.4323)
+(32,0.4894)
+(64,0.5946)
+(128,0.6646)
+(256,0.8251)
+    };
+\addplot[
+    color=red,
+    mark=square,
+    ]
+    coordinates {
+(1,0.6675)
+(2,0.6694)
+(4,0.6732)
+(8,0.6808)
+(16,0.6960)
+(32,0.7264)
+(64,0.7872)
+(128,0.9088)
+(256,1.1520)
+};
+\end{axis}
+\end{tikzpicture}
+\end{center}
+\end{itemize}
+\pagebreak
+\item {\bf Notes:}\\
+\begin{itemize}
+\item Readers or Writers in the \texttt{case (iii)} \& \texttt{case (iv)} are distributed on indexes which are multiples of \texttt{hopsize}, viz.\\
+Say, \# of Readers for a particular iteration = 64. (\texttt{case (iii)})\\
+\# of Writers = 192 (256-64)\\
+\texttt{hopsize} = 256/64 = 4\\
+So, Readers will be distributed on indexes = \texttt{\{0,4,8,12,16...\}}\\\\
+This is an improvement over randomizing the distribution because no matter what hashing we use to randomize the placement of Readers (or Writers) in the \texttt{OP} array, there are always chances of collisions which will lead to same array index being selected more than once, and hence the actual \# of Readers (or Writers) will be reduced (will be exactly \texttt{requiredNumberOfReaders - number OfCollisions}).\\\\
+\item However the distribution of byte range for each of the threads is still random and done using the following formula,\\
+\texttt{factor = (int)(((double)(rand()\%10)/10.0)*10);}\\
+\texttt{lowIndex = factor * BUFFSIZE}\\
+\texttt{highIndex = lowIndex + BUFFSIZE -1}\\\\
+By choosing any integer lesser than \texttt{10} throughout the above formula, we can increase the \# of concurrent I/O requests for any given byte range.\\\\	
+\item Because of random byte range selection for different threads, this experiment is purely random in nature, and the above results are likely to be changing when the \texttt{Visual C++ code} is executed again.\\\\
+\item All the methods are implemented using \texttt{MSDN} libraries only, and so this solution can be very well implemented inside the \texttt{Historian}.\\\\
+\item This solution inherently takes care of \texttt{Readers-Writers Problem (Readers Priority)}, however avoidance of \texttt{starvation of writers} is something which is {\bf{\texttt{yet to be implemented}}}.\\\\ 
+\item \texttt{Shared \& Exclusive} locks used above follow the standard compatibility matrix given concurrent requests on intersecting byte-ranges. otherwise, locks are always granted instantly for requests which are made on non-intersecting byte-ranges.  
+
+
+\end{itemize}
+
+\vspace{10ex}
+\item {\bf Conclusion}\\\\
+Within limits of experimental error, the \textbf{OOP-based byte-range locking solution} is found to (\textbf{yield smaller running-times}) than the one based on file-based locking, in other words where a single \texttt{Lock} object appears for every \texttt{MSOBasicFile} object (as appears in the existing \texttt{BasicFile.cpp}).
+
+\end{itemize}
+\end{document}
